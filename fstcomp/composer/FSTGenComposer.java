@@ -1,18 +1,22 @@
 package composer;
 
+import java.io.BufferedWriter;
 import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.FileWriter;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.Map;
 
 import metadata.CompositionMetadataStore;
 import printer.PrintVisitorException;
 import builder.ArtifactBuilderInterface;
 import builder.capprox.CApproxBuilder;
 import builder.java.JavaBuilder;
+import composer.methodToFeatureMapping.MethodIdentifier;
 import composer.rules.CSharpMethodOverriding;
 import composer.rules.CompositionError;
 import composer.rules.CompositionRule;
@@ -43,6 +47,13 @@ public class FSTGenComposer extends FSTGenProcessor {
 	protected CmdLineInterpreter cmd = new CmdLineInterpreter();
 	
 	protected CompositionMetadataStore meta = CompositionMetadataStore.getInstance();
+	/**
+	 * This is a list of all methods in the final system (after composition).
+	 * For ease of handling, it is maintained as a Map from FSTTerminals (only method nodes please) to MethodIdentifiers which contain all information on the method.
+	 * If a method node is removed from the final program (replaced by superimposition) it should be removed from the list.
+	 * If a method name is changed, the name in the MethodIdentifier should be changed.
+	 */
+	protected Map<FSTTerminal, MethodIdentifier> functionList = new HashMap<FSTTerminal, MethodIdentifier>();
 	protected List<CompositionRule> compositionRules;
 	
 	public FSTGenComposer() {
@@ -62,7 +73,9 @@ public class FSTGenComposer extends FSTGenProcessor {
 		meta.clearFeatures();
 		cmd.parseCmdLineArguments(args);
 		JavaMethodOverriding.setFeatureAnnotation(cmd.featureAnnotation);
+		JavaMethodOverriding.setGlobalFunctionList(functionList);
 		JavaRuntimeFunctionRefinement.setFeatureAnnotation(cmd.featureAnnotation);
+		JavaRuntimeFunctionRefinement.setGlobalFunctionList(functionList);
 		
 		//select the composition rules
 		compositionRules = new ArrayList<CompositionRule>();
@@ -172,6 +185,21 @@ public class FSTGenComposer extends FSTGenProcessor {
 		} catch (FileNotFoundException e1) {
 			//e1.printStackTrace();
 		}
+		if (cmd.exportFeatureMethodMapping) {
+			String equationName = new File(cmd.equationFileName).getName();
+			equationName = equationName.substring(0, equationName.length() - 4);// remove ".exp"
+			File map = new File(cmd.equationBaseDirectoryName + File.separator + equationName + File.separator, "FeatureMethodMap.txt");
+			System.out.println("writing feature-method map to file " + map.getAbsolutePath());
+			try (BufferedWriter bw = new BufferedWriter(new FileWriter(map))) {
+				for (MethodIdentifier mi : functionList.values()) {
+					bw.write(mi.toJavaNativeSignatureWithFeature() + "\n");
+				}
+			} catch (IOException e) {
+				System.err.println("Exception while writing " + map.getAbsolutePath());
+				e.printStackTrace();
+			}
+			
+		}
 	}
 	
 	private void saveFeatureAnnotationFile(File srcDir) {
@@ -254,6 +282,7 @@ public class FSTGenComposer extends FSTGenProcessor {
 			if (composed != null) {
 				composed = compose(current, composed);
 			} else {
+				// first iteration (base feature)
 				if (cmd.featureAnnotation) {
 					addAnnotationToChildrenMethods(current, current.getFeatureName());
 				}
@@ -288,8 +317,13 @@ public class FSTGenComposer extends FSTGenProcessor {
 		} else if (current instanceof FSTTerminal) {
 			if ("MethodDecl".equals(current.getType()) || 
 					"ConstructorDecl".equals(current.getType())) {
-				String body = ((FSTTerminal)current).getBody();
-				((FSTTerminal)current).setBody(JavaMethodOverriding.featureAnnotationPrefix + featureName +"\")\n" + body);
+				FSTTerminal currentTerm = (FSTTerminal)current;
+				String body = currentTerm.getBody();
+				currentTerm.setBody(JavaMethodOverriding.featureAnnotationPrefix + featureName +"\")\n" + body);
+				if (currentTerm.getParent().getParent() == null) {
+					System.out.println();
+				}
+				functionList.put(currentTerm, new MethodIdentifier(currentTerm, (FSTNonTerminal)currentTerm.getParent()));
 			}
 		} else {
 			throw new RuntimeException("Somebody has introduced a subclass of FSTNode \"" + 
@@ -339,6 +373,7 @@ public class FSTGenComposer extends FSTGenProcessor {
 						FSTNode newChildA = childA.getDeepClone();
 						if (cmd.featureAnnotation) {
 							if (newChildA instanceof FSTNonTerminal) {
+								newChildA.setParent(nonterminalComp);
 								addAnnotationToChildrenMethods(newChildA, childA.getFeatureName());
 							} else if (newChildA instanceof FSTTerminal) {
 								if ("MethodDecl".equals(newChildA.getType()) ||

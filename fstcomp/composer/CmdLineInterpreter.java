@@ -35,6 +35,8 @@ public class CmdLineInterpreter {
 	public static final String INPUT_OPTION_LIFTING = "--lift";
 	
 	public static final String INPUT_OPTION_ANNOTATION = "--featureAnnotationJava";
+	
+	public static final String INPUT_OPTION_EXPORT_FEATURE_METHOD_MAPPING = "--exportFeatureMethodMapping";
 
 	public boolean verbose = false;
 
@@ -67,6 +69,8 @@ public class CmdLineInterpreter {
 	public String lifting_language = "";
 	
 	public boolean featureAnnotation = false;
+	
+	public boolean exportFeatureMethodMapping = false;
 
 	public void parseCmdLineArguments(String[] args) {
 		boolean jml = false;
@@ -128,6 +132,8 @@ public class CmdLineInterpreter {
 					isAheadEquationFile = true;
 				} else if (args[i].equals(INPUT_OPTION_ANNOTATION)) {
 					featureAnnotation = true;
+				} else if (args[i].equals(INPUT_OPTION_EXPORT_FEATURE_METHOD_MAPPING)) {
+					exportFeatureMethodMapping = true;
 				} else if (args[i].startsWith(INPUT_OPTION_LIFTING)) {
 					lifting = true;
 					lifting_language = args[i]
@@ -192,6 +198,9 @@ public class CmdLineInterpreter {
 		System.out.println("The option `" + INPUT_OPTION_LIFTING
 				+ "' can currently only be used with C Code. It composes the "
 				+ "sources in a way that allows feature selection at runtime");
+		System.out.println("The option `" + INPUT_OPTION_EXPORT_FEATURE_METHOD_MAPPING
+				+ "' exports a file stating which method originates in which feature."
+				+ "Methods are given in JNI format.");
 
 	}
 

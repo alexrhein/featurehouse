@@ -3,11 +3,12 @@ package composer.rules.rtcomp.java;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.StringTokenizer;
 
+import composer.methodToFeatureMapping.MethodIdentifier;
 import composer.rules.AbstractCompositionRule;
 import composer.rules.JavaMethodOverriding;
-
 import de.ovgu.cide.fstgen.ast.FSTNonTerminal;
 import de.ovgu.cide.fstgen.ast.FSTTerminal;
 
@@ -18,8 +19,12 @@ public class JavaRuntimeFunctionRefinement extends AbstractCompositionRule {
 	private static int generatedSwitchMethods = 0;
 	
 	private static boolean addFeatureAnnotations = false;
+	private static Map<FSTTerminal, MethodIdentifier> functionList;
 	public static void setFeatureAnnotation(boolean addFeatureAnnotation) {
 		JavaRuntimeFunctionRefinement.addFeatureAnnotations=addFeatureAnnotation;
+	}
+	public static void setGlobalFunctionList(Map<FSTTerminal, MethodIdentifier> functionList) {
+		JavaRuntimeFunctionRefinement.functionList=functionList;
 	}
 
 	@Override
@@ -85,7 +90,6 @@ public class JavaRuntimeFunctionRefinement extends AbstractCompositionRule {
 					else
 						exceptions += sigB.exceptions.get(i)+ ", ";
 				}
-				
 			}
 			
 			if (sigB.returnType.trim().endsWith("void")) {
@@ -111,6 +115,16 @@ public class JavaRuntimeFunctionRefinement extends AbstractCompositionRule {
 				newBody3 = getSwitchMethodAnnotation(featureNameTermA, featureNameTermB) + newBody3;
 			}
 			terminalComp.setBody(newBody3);
+			terminalComp.setOriginalFeatureName("featureSwitch");
+			
+			// finally, we have to modify the names stored for the methods in functionList
+			// terminals FSTTerminal terminalA and FSTTerminal terminalB should already be in the map
+			// remove and store them
+			MethodIdentifier miB = functionList.remove(terminalB);
+			MethodIdentifier miA = functionList.remove(terminalB);
+			functionList.put(terminalComp2, new MethodIdentifier(terminalComp2, nonterminalParent));
+			functionList.put(terminalComp3, new MethodIdentifier(terminalComp3, nonterminalParent));
+			functionList.put(terminalComp , new MethodIdentifier(terminalComp , nonterminalParent));
 	}
 
 	private String extractMethodOriginFeature(String signature) {
@@ -216,6 +230,10 @@ public class JavaRuntimeFunctionRefinement extends AbstractCompositionRule {
 		}
 		
 		public static Signature fromString(String src) {
+			if (src.trim().startsWith("@")) {
+				int annotationsEnd = JavaMethodOverriding.extractMethodAnnotationsEnd(src);
+				src = src.substring(annotationsEnd);
+			}
 			String name = src;
 			String returnType = "";
 			String paramlist = "()";
@@ -246,8 +264,15 @@ public class JavaRuntimeFunctionRefinement extends AbstractCompositionRule {
 			
 			// this will not work well if the methodName or some parameter contains the String "throws "
 			if (src.contains("throws ")) {
-				String exs = src.substring(src.indexOf("throws ")+"throws".length());
-				exs = exs.substring(0, exs.indexOf("{"));
+				String exs = src.substring(src.indexOf("throws ")+"throws".length()).trim();
+				if (src.contains("{")) {
+					// part before the body
+					exs = exs.substring(0, exs.indexOf("{"));
+				} else {
+					// this is probably an abstract method declaration or an interface method
+					if (exs.endsWith(";"))
+						exs = exs.substring(0, exs.length()-1);
+				}
 				String[] exArr = exs.split(",");
 				for (String s : exArr) {
 					exceptions.add(s.trim());

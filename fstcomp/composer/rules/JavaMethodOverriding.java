@@ -2,12 +2,12 @@ package composer.rules;
 
 import java.util.LinkedHashSet;
 import java.util.LinkedList;
+import java.util.Map;
 import java.util.StringTokenizer;
 
 import metadata.CompositionMetadataStore;
-
 import composer.CompositionException;
-
+import composer.methodToFeatureMapping.MethodIdentifier;
 import de.ovgu.cide.fstgen.ast.CommandLineParameterHelper;
 import de.ovgu.cide.fstgen.ast.FSTNode;
 import de.ovgu.cide.fstgen.ast.FSTNonTerminal;
@@ -17,12 +17,17 @@ public class JavaMethodOverriding extends AbstractCompositionRule {
 
 	private static boolean addFeatureAnnotations = false;
 
+	private static Map<FSTTerminal, MethodIdentifier> functionList;
+
 	public static final String featureAnnotationPrefix = "@featureHouse.FeatureAnnotation(name=\"";
 
 	public final static String COMPOSITION_RULE_NAME = "JavaMethodOverriding";
 
 	public static void setFeatureAnnotation(boolean addFeatureAnnotation) {
 		JavaMethodOverriding.addFeatureAnnotations = addFeatureAnnotation;
+	}
+	public static void setGlobalFunctionList(Map<FSTTerminal, MethodIdentifier> functionList) {
+		JavaMethodOverriding.functionList = functionList;
 	}
 
 	private FSTNode getContractCompositionKeyword(FSTNode node) {
@@ -137,6 +142,16 @@ public class JavaMethodOverriding extends AbstractCompositionRule {
 			terminalComp2.setName(newMethodName);
 			if (terminalParentComp2 != null)
 				terminalParentComp2.setName(newMethodName);
+			
+			// finally, we have to modify the names stored for the methods in functionList
+			// terminal FSTTerminal terminalB should already be in the map
+			// remove and store it
+			MethodIdentifier miB = functionList.remove(terminalB); // TODO
+			assert (miB!=null);
+			//terminalComp2 is a successor to terminalB with changed name "beforeFunctionName"
+			functionList.put(terminalComp2, miB.deepClone());
+			functionList.get(terminalComp2).setMethodName(newMethodName);
+			// terminal FSTTerminal terminalA is not changed
 		}
 	}
 
