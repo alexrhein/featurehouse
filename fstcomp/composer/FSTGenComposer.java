@@ -320,9 +320,6 @@ public class FSTGenComposer extends FSTGenProcessor {
 				FSTTerminal currentTerm = (FSTTerminal)current;
 				String body = currentTerm.getBody();
 				currentTerm.setBody(JavaMethodOverriding.featureAnnotationPrefix + featureName +"\")\n" + body);
-				if (currentTerm.getParent().getParent() == null) {
-					System.out.println();
-				}
 				functionList.put(currentTerm, new MethodIdentifier(currentTerm, (FSTNonTerminal)currentTerm.getParent()));
 			}
 		} else {

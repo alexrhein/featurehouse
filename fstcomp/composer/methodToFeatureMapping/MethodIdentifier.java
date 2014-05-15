@@ -158,12 +158,16 @@ public class MethodIdentifier {
 	 * this method extracts information from the terminal to build a new MethodIdentifier for it.
 	 */
 	public MethodIdentifier(FSTTerminal functionNode, FSTNonTerminal classNode) {
+		assert ("ConstructorDecl".equals(functionNode.getType()) || "MethodDecl".equals(functionNode.getType())) : 
+			"Tried to get method signature of non-method/constructor FST node";
 		if ("ConstructorDecl".equals(functionNode.getType()))
 			isConstructor=true;
 		originFeature = functionNode.getOriginalFeatureName();
 		Signature sig = JavaRuntimeFunctionRefinement.Signature.fromString(functionNode.getBody());
 		methodName = sig.name;
-		
+
+		// determine package name of the file containing this method; 
+		// first try compilation unit of the paramter classNode; if that does not yield a package, try compilationUnit of the method
 		FSTNonTerminal compilationUnit = (FSTNonTerminal)classNode.getParent(); // each class should be in a compilation unit and it should be a non terminal
 		assert "CompilationUnit".equals(compilationUnit.getType());
 		classPackage = getPackageNameFromCompilationUnit(compilationUnit);
@@ -176,7 +180,40 @@ public class MethodIdentifier {
 		}
 		
 		// collect imported type names using import statements from compilationUnit
-		Map<String, String> importedTypes = new HashMap<String,String>();
+		Map<String, String> importedTypes = collectImportedTypes(compilationUnit);
+		// if compilation unit A of functionNode is not equal to parameter compilation unit B, collect import statements from A, too
+		FSTNonTerminal functionCompilationUnit = getCompilationUnit(functionNode);
+		if (functionCompilationUnit!=null && !functionCompilationUnit.equals(compilationUnit)) {
+			importedTypes.putAll(collectImportedTypes(functionCompilationUnit));
+		}
+		
+		// determine return Type and parameters; at this point imports must have been collected because they are used here (resolveImportedTypeName)
+		returnType = sig.returnType.
+				replaceAll("public","").replaceAll("private","").replaceAll("static","")
+				.replaceAll("protected","").replaceAll("final","").replaceAll("synchronized","")
+				.replaceAll("native","").replaceAll("abstract","").replaceAll("transient","")
+				.replaceAll("strictfp","").trim();
+		returnType = resolveImportedTypeName(returnType, classPackage, importedTypes);
+		String paramList = sig.paramlist.trim();
+		if (paramList.startsWith("(")) paramList=paramList.substring(1);
+		if (paramList.endsWith(")")) paramList=paramList.substring(0, paramList.length()-1);
+		//paramList is a comma-seperated list of all function parameters
+		if (!paramList.trim().isEmpty()) {
+			List<String> parameters = getElementsFromParamList(paramList);
+			for (String param : parameters) {
+				// param is something like "Bar b", remove the " b".
+				String paramType = param.substring(0, param.lastIndexOf(" ")).trim();
+				parameterTypes.add(resolveImportedTypeName(paramType, classPackage, importedTypes));
+			}
+		}
+		className = classNode.getName();
+	}
+	/**
+	 * Collects a map of all types imported in this compilation unit.
+	 * Map<String,String>  key:= simpleTypeName (class name); value:= fully qualified type name (as stated in import)
+	 */
+	private static Map<String, String> collectImportedTypes(FSTNonTerminal compilationUnit) {
+		Map<String, String> importedTypes = new HashMap<>();
 		for (FSTNode child : compilationUnit.getChildren()) {
 			if (child.getType().equals("ImportDeclaration")) {
 				FSTTerminal importNode = (FSTTerminal) child;
@@ -187,50 +224,16 @@ public class MethodIdentifier {
 				} else if (!importType.contains(".")) {
 					importedTypes.put(importType, importType);
 				} else {
-					String simpleTypeName = importType.substring(importType.lastIndexOf(".")+1);
+					String simpleTypeName = importType.substring(importType.lastIndexOf("."));
 					importedTypes.put(simpleTypeName, importType);
 				}
 			}
 		}
-		// if compilation unit A of functionNode is not equal to parameter compilation unit B, collect import statements from A, too
-		FSTNonTerminal functionCompilationUnit = getCompilationUnit(functionNode);
-		if (functionCompilationUnit!=null && !functionCompilationUnit.equals(compilationUnit)) {
-			for (FSTNode child : functionCompilationUnit.getChildren()) {
-				if (child.getType().equals("ImportDeclaration")) {
-					FSTTerminal importNode = (FSTTerminal) child;
-					String importType = importNode.getBody().trim().replaceFirst("import ", "");
-					importType = importType.substring(0, importType.length()-1); // remove trailing ";"
-					if (importType.endsWith("*")) {
-						System.err.println("Found unqualified import \""+importType+"\"in file " + compilationUnit.getName() + " feature " + compilationUnit.getFeatureName() + "\n\tcannot resolve types from this package.");
-					} else if (!importType.contains(".")) {
-						importedTypes.put(importType, importType);
-					} else {
-						String simpleTypeName = importType.substring(importType.lastIndexOf("."));
-						importedTypes.put(simpleTypeName, importType);
-					}
-				}
-			}
-		}
-		
-		returnType = sig.returnType.
-				replaceAll("public","").replaceAll("private","").replaceAll("static","")
-				.replaceAll("protected","").replaceAll("final","").replaceAll("synchronized","")
-				.replaceAll("native","").replaceAll("abstract","").replaceAll("transient","")
-				.replaceAll("strictfp","").trim();
-		returnType = resolveImportedTypeName(returnType, classPackage, importedTypes);
-		String paramList = sig.paramlist.trim();
-		if (paramList.startsWith("(")) paramList=paramList.substring(1);
-		if (paramList.endsWith(")")) paramList=paramList.substring(0, paramList.length()-1);
-		if (!paramList.trim().isEmpty()) {
-			for (String param : paramList.split(",")) { // this will break with generics where "," is also in type parameter lists
-				param = param.trim();
-				String paramType = param.substring(0, param.lastIndexOf(" ")).trim();
-				parameterTypes.add(resolveImportedTypeName(paramType, classPackage, importedTypes));
-			}
-		}
-		className = classNode.getName();
+		return importedTypes;
 	}
-	private String getPackageNameFromCompilationUnit(
+	/** Searches the passed compilation unit for a package declaration, returns null if none is found.
+	 */
+	private static String getPackageNameFromCompilationUnit(
 			FSTNonTerminal compilationUnit) {
 		String packageName = "";
 		for (FSTNode node: compilationUnit.getChildren()) {
@@ -245,7 +248,9 @@ public class MethodIdentifier {
 		}
 		return packageName;
 	}
-	private FSTNonTerminal getCompilationUnit(FSTTerminal functionNode) {
+	/** Traverses parent nodes until a compilation unit is found; returns this compilation unit node
+	 */
+	private static FSTNonTerminal getCompilationUnit(FSTTerminal functionNode) {
 		FSTNode ret = functionNode;
 		while (!ret.getType().equals("CompilationUnit") && ret.getParent()!=null) {
 			ret = ret.getParent();
@@ -254,6 +259,9 @@ public class MethodIdentifier {
 			return (FSTNonTerminal) ret;
 		else return null;
 	}
+	/**
+	 * Tries to resolve a type name to its fully qualified name using information from the collected import statements and the current package declaration.
+	 */
 	private static String resolveImportedTypeName(String paramType, String classPackage,
 			Map<String, String> importedTypes) {
 		// if endswith "[]" resolve recursively
@@ -272,26 +280,10 @@ public class MethodIdentifier {
 			int genStart = paramType.indexOf("<");
 			String outerType = resolveImportedTypeName(paramType.substring(0,genStart).trim(), classPackage, importedTypes);
 			String typeParamList = paramType.substring(genStart+1, paramType.length()-1).trim(); // remove last ">"
-			int openBrackets = 0; // track number of open brackets and split type parameter from string when openBrackets is 0 and symbol is ','
 			ArrayList<String> typeParams = new ArrayList<String>();
-			int segmentStart = 0;
-			for (int i = 0; i < typeParamList.length(); i++) {
-				switch (typeParamList.charAt(i)) {
-				case '<': openBrackets++; break;
-				case '>': openBrackets--; break;
-				case ',':
-					if (openBrackets==0) {
-						String tParam = typeParamList.substring(segmentStart, i).trim();
-						typeParams.add(resolveImportedTypeName(tParam, classPackage, importedTypes));
-					}
-					segmentStart = i+1;
-					break;
-				}
+			for (String p : getElementsFromParamList(typeParamList)) {
+				typeParams.add(resolveImportedTypeName(p, classPackage, importedTypes));
 			}
-			// last segment
-			String tParam = typeParamList.substring(segmentStart).trim();
-			typeParams.add(resolveImportedTypeName(tParam, classPackage, importedTypes));
-			
 			String ret ="";
 			for (String tp : typeParams) {
 				if (ret.isEmpty())
@@ -323,12 +315,47 @@ public class MethodIdentifier {
 			return classPackage + "." + paramType;
 		}
 	}
+	/**
+	 * Returns the top level elements of a parameter list.
+	 * It does not matter whether the list was a type parameter list (enclosed by "<" ">" in a method signature) or not.
+	 * All elements of the returned list are trimmed.
+	 * 
+	 * Given the String "Bar,Bla<T extends Throwable>" 
+	 * from type "Foo<Bar,Bla<T extends Throwable>>", 
+	 * this method returns a List { "Bar" , "Bla<T extends Throwable>" }.
+	 * (The type parameters of Bla must be resolved subsequently)
+	 * 
+	 * Given the String "Bar a,Bla<T extends Throwable> b" from parameter list "method(Bar a,Bla<T extends Throwable> b)",
+	 * this method returns a List { "Bar a" , "Bla<T extends Throwable> b" }.
+	 * (The type parameters of Bla must be resolved subsequently)
+	 */
+	private static List<String> getElementsFromParamList(String paramList) {
+		int openBrackets = 0; // track number of open brackets and split type parameter from string when openBrackets is 0 and symbol is ','
+		ArrayList<String> typeParams = new ArrayList<String>();
+		int segmentStart = 0;
+		for (int i = 0; i < paramList.length(); i++) {
+			switch (paramList.charAt(i)) {
+			case '<': openBrackets++; break;
+			case '>': openBrackets--; break;
+			case ',':
+				if (openBrackets==0) {
+					String tParam = paramList.substring(segmentStart, i).trim();
+					typeParams.add(tParam);
+				}
+				segmentStart = i+1;
+				break;
+			}
+		}
+		// last segment
+		String tParam = paramList.substring(segmentStart).trim();
+		typeParams.add(tParam);
+		return typeParams;
+	}
 	private MethodIdentifier() {}
 	public void setIsConstructor(boolean isConstructor) {
 		this.isConstructor = isConstructor;
 	}
 	public String getMethodName() {
-		
 		return methodName;
 	}
 	public void setMethodName(String methodName) {
@@ -370,7 +397,10 @@ public class MethodIdentifier {
 		mi.originFeature = originFeature;
 		return mi;
 	}
-
+	
+	/**
+	 * Map of primitive Java types to their JNI identifiers; used in the JNI export function
+	 */
 	private static final Map<String,String> primitiveTypeNameJNImap = new HashMap<String,String>();
 	{
 		primitiveTypeNameJNImap.put("byte", "B");
@@ -383,7 +413,6 @@ public class MethodIdentifier {
 		primitiveTypeNameJNImap.put("char", "C");
 		primitiveTypeNameJNImap.put("void", "V");
 	}
-	
 	/**
 	 * Java Native Method Signature
 	 * http://journals.ecs.soton.ac.uk/java/tutorial/native1.1/implementing/method.html
