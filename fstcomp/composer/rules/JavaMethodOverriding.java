@@ -3,6 +3,7 @@ package composer.rules;
 import java.util.LinkedHashSet;
 import java.util.LinkedList;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.StringTokenizer;
 
 import metadata.CompositionMetadataStore;
@@ -148,9 +149,17 @@ public class JavaMethodOverriding extends AbstractCompositionRule {
 			// remove and store it
 			MethodIdentifier miB = functionList.remove(terminalB); // TODO
 			assert (miB!=null);
-			//terminalComp2 is a successor to terminalB with changed name "beforeFunctionName"
-			functionList.put(terminalComp2, miB.deepClone());
-			functionList.get(terminalComp2).setMethodName(newMethodName);
+			if (miB==null) {
+				// something has gone wrong, this bug occurs with the CFDP SPL, but I did not find it
+				// this is a quick fix
+				//terminalComp2 is a successor to terminalB with changed name "beforeFunctionName"
+				functionList.put(terminalComp2, new MethodIdentifier(terminalB, nonterminalParent));
+				functionList.get(terminalComp2).setMethodName(newMethodName);
+			} else {
+				//terminalComp2 is a successor to terminalB with changed name "beforeFunctionName"
+				functionList.put(terminalComp2, miB.deepClone());
+				functionList.get(terminalComp2).setMethodName(newMethodName);
+			}
 			// terminal FSTTerminal terminalA is not changed
 		}
 	}
