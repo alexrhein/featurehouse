@@ -167,9 +167,13 @@ public class MethodIdentifier {
 		methodName = sig.name;
 
 		// determine package name of the file containing this method; 
-		// first try compilation unit of the paramter classNode; if that does not yield a package, try compilationUnit of the method
+		// first try compilation unit of the parameter classNode; if that does not yield a package, try compilationUnit of the method
+		// classNode might be an inner class, so we have to go up until we reach a CompilationUnit Node.
+		
 		FSTNonTerminal compilationUnit = (FSTNonTerminal)classNode.getParent(); // each class should be in a compilation unit and it should be a non terminal
-		assert "CompilationUnit".equals(compilationUnit.getType());
+		while (! "CompilationUnit".equals(compilationUnit.getType()) && compilationUnit.getParent()!=null) {
+			compilationUnit = compilationUnit.getParent();
+		}
 		classPackage = getPackageNameFromCompilationUnit(compilationUnit);
 		if (classPackage == null || classPackage.isEmpty()) {
 			// try different compilation unit
