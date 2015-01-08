@@ -439,12 +439,12 @@ public class FSTGenComposer extends FSTGenProcessor {
 			 */
 			replaceXMLHooksInNT(compParent, child);
 		} else {
-			meta.discoverFuncIntroductions(childA);
+			meta.discoverFuncIntroductions(child);
 			/* Adds java Annotations (e.g. @Feature("base")) to methods and constructors in the java source code of the feature. */
 			FSTNode newChildA = child.getDeepClone();
 			if (cmd.featureAnnotation) {
 				if (newChildA instanceof FSTNonTerminal) {
-					newChildA.setParent(nonterminalComp);
+					newChildA.setParent(compParent);
 					addAnnotationToChildrenMethods(newChildA, child.getFeatureName());
 				} else if (newChildA instanceof FSTTerminal) {
 					if ("MethodDecl".equals(newChildA.getType()) ||
