@@ -22,8 +22,8 @@ public class BinaryPrintVisitor extends ArtifactPrintVisitor {
 	public void processNode(FSTNode node, File folderPath) throws PrintVisitorException {
 		if(node instanceof FSTNonTerminal) {
 			FSTNonTerminal nonterminal = (FSTNonTerminal)node;
-			assert(nonterminal.getChildren().isEmpty());
-			assert(!(nonterminal.getChildren().get(0) instanceof FSTTerminal));
+			assert(!nonterminal.getChildren().isEmpty());
+			assert((nonterminal.getChildren().get(0) instanceof FSTTerminal));
 			
 			String originalPath = ((FSTTerminal)nonterminal.getChildren().get(0)).getBody();
 			File dst = new File(folderPath, nonterminal.getName());
