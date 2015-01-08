@@ -190,7 +190,7 @@ public class FSTGenComposer extends FSTGenProcessor {
 						new JavaRuntimeFeatureSelection(meta, cnfFile).saveTo(outputDir + File.separator);
 					}
 				}
-			} catch (IOException e) {			
+			} catch (IOException e) {
 				e.printStackTrace();
 			}
 		} catch (FileNotFoundException e1) {
