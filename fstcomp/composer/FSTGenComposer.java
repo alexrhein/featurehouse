@@ -5,6 +5,7 @@ import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.FileWriter;
 import java.io.IOException;
+import java.io.PrintStream;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedList;
@@ -17,6 +18,8 @@ import builder.ArtifactBuilderInterface;
 import builder.capprox.CApproxBuilder;
 import builder.java.JavaBuilder;
 import composer.methodToFeatureMapping.MethodIdentifier;
+import builder.xml.XMLHook;
+import builder.xml.XMLNode;
 import composer.rules.CSharpMethodOverriding;
 import composer.rules.CompositionError;
 import composer.rules.CompositionRule;
@@ -55,6 +58,12 @@ public class FSTGenComposer extends FSTGenProcessor {
 	 */
 	protected Map<FSTTerminal, MethodIdentifier> functionList = new HashMap<FSTTerminal, MethodIdentifier>();
 	protected List<CompositionRule> compositionRules;
+
+	/* 
+	 * Stream to which all output should be directed. 
+	 * Normally this is set to System.out, but sometimes we want to handle output differently (e.g. unit tests).
+	 */
+	public static PrintStream outStream = System.out;
 	
 	public FSTGenComposer() {
 		super();
@@ -135,7 +144,9 @@ public class FSTGenComposer extends FSTGenProcessor {
 				}
 				
 				for (FSTNonTerminal feature : features) {
+					setOriginalFeatureName(feature, feature.getName());
 					meta.addFeature(feature.getName());
+					meta.discoverFuncIntroductions(feature);
 				}
 				FSTNode composition = compose(features);
 //				modify(composition);
@@ -172,7 +183,7 @@ public class FSTGenComposer extends FSTGenProcessor {
 				meta.saveToFile(outputDir + File.separator + "roles.meta");
 				if (cmd.lifting) {
 					File cnfFile = new File(cmd.equationBaseDirectoryName, "model.cnf");
-					System.err.println("cnfFile:" + cnfFile.getAbsolutePath());
+					FSTGenComposer.outStream.println("cnfFile:" + cnfFile.getAbsolutePath());
 					if (cmd.lifting_language.equals("c")) {
 						new CRuntimeFeatureSelection(meta, cnfFile).saveTo(outputDir + File.separator + "features/featureselect");
 					} else if (cmd.lifting_language.equals("java")) {
@@ -205,7 +216,7 @@ public class FSTGenComposer extends FSTGenProcessor {
 	private void saveFeatureAnnotationFile(File srcDir) {
 		File f = new File(srcDir+File.separator+"featureHouse"+File.separator, "FeatureAnnotation.java");
 		f.getParentFile().mkdirs();
-		System.out.println("writing FeatureAnnotation to file " +  f.getAbsolutePath());
+		FSTGenComposer.outStream.println("writing FeatureAnnotation to file " +  f.getAbsolutePath());
 		FileWriter fw = null;
 		try  {
 			fw = new FileWriter(f);
@@ -238,7 +249,7 @@ public class FSTGenComposer extends FSTGenProcessor {
 	private void saveSwitchIDAnnotationFile(File srcDir) {
 		File f = new File(srcDir+File.separator+"featureHouse"+File.separator, "FeatureSwitchID.java");
 		f.getParentFile().mkdirs();
-		System.out.println("writing FeatureSwitchID to file " +  f.getAbsolutePath());
+		FSTGenComposer.outStream.println("writing FeatureSwitchID to file " +  f.getAbsolutePath());
 		FileWriter fw = null; 
 		try {
 			fw = new FileWriter(f);
@@ -274,10 +285,15 @@ public class FSTGenComposer extends FSTGenProcessor {
 		FSTGenComposer composer = new FSTGenComposer();
 		composer.run(args);
 	}
-
+	public static void composeWithPrintStream(String[] args, PrintStream out) {
+		FSTGenComposer composer = new FSTGenComposer();
+		FSTGenComposer.outStream = out;
+		composer.run(args);
+	}
 	private FSTNode compose(List<FSTNonTerminal> tl) {
 		FSTNode composed = null;
 		for (FSTNode current : tl) {
+			// Several features will be merged in this node. Therefore its original feature is removed.
 			setOriginalFeatureName((FSTNonTerminal)current, "");
 			if (composed != null) {
 				composed = compose(current, composed);
@@ -366,23 +382,7 @@ public class FSTGenComposer extends FSTGenProcessor {
 					FSTNode childB = nonterminalB.getCompatibleChild(childA);
 					if (childB == null) {
 						// no compatible child, FST-node only in A
-						meta.discoverFuncIntroductions(childA);
-						FSTNode newChildA = childA.getDeepClone();
-						if (cmd.featureAnnotation) {
-							if (newChildA instanceof FSTNonTerminal) {
-								newChildA.setParent(nonterminalComp);
-								addAnnotationToChildrenMethods(newChildA, childA.getFeatureName());
-							} else if (newChildA instanceof FSTTerminal) {
-								if ("MethodDecl".equals(newChildA.getType()) ||
-										"ConstructorDecl".equals(newChildA.getType())) {
-									FSTTerminal termNewChildA = (FSTTerminal) newChildA;
-									String body = termNewChildA.getBody();
-									String feature = termNewChildA.getOriginalFeatureName();
-									termNewChildA.setBody(JavaMethodOverriding.featureAnnotationPrefix + feature +"\")\n" + body);
-								}
-							}
-						}
-						nonterminalComp.addChild(newChildA);
+						handleChildWithoutCompatibleSiblings(childA, nonterminalComp);
 					}
 				}
 				return nonterminalComp;
@@ -421,5 +421,102 @@ public class FSTGenComposer extends FSTGenProcessor {
 			return null;
 		} else
 			return null;
+	}
+
+	/**
+	 * Handles children FSTNodes that do not have compatible siblings.
+	 * Such nodes sometimes have to be processed (replacing hooks, etc).
+	 * In the end a deep clone of the child is added to the composition result parent.
+	 * @param child The child FSTNode which has no siblings it can be composed with.
+	 * @param compParent The parent node in the final tree (not necessarily the parent of child in the feature).
+	 */
+	private void handleChildWithoutCompatibleSiblings(FSTNode child, FSTNonTerminal compParent) {
+		if (child instanceof XMLHook) {
+			/* Handles before|after hooks in Android XML
+			 * If an android:id is present in the Hook, all containing
+			 * widgets will be placed before|after that widget. If no id is
+			 * found, they will either be prepended, or appended to the branch.
+			 */
+			replaceXMLHooksInNT(compParent, child);
+		} else {
+			meta.discoverFuncIntroductions(childA);
+			/* Adds java Annotations (e.g. @Feature("base")) to methods and constructors in the java source code of the feature. */
+			FSTNode newChildA = child.getDeepClone();
+			if (cmd.featureAnnotation) {
+				if (newChildA instanceof FSTNonTerminal) {
+					newChildA.setParent(nonterminalComp);
+					addAnnotationToChildrenMethods(newChildA, child.getFeatureName());
+				} else if (newChildA instanceof FSTTerminal) {
+					if ("MethodDecl".equals(newChildA.getType()) ||
+							"ConstructorDecl".equals(newChildA.getType())) {
+						FSTTerminal termNewChildA = (FSTTerminal) newChildA;
+						String body = termNewChildA.getBody();
+						String feature = termNewChildA.getOriginalFeatureName();
+						termNewChildA.setBody(JavaMethodOverriding.featureAnnotationPrefix + feature +"\")\n" + body);
+					}
+				}
+			}
+			compParent.addChild(newChildA);
+		}
+	}
+
+	/**
+	 * Handles before|after hooks in Android XML
+	 * If an android:id is present in the Hook, all containing
+	 * widgets will be placed before|after that widget. If no id is
+	 * found, they will either be prepended, or appended to the branch.
+	 * @param nonterminalComp
+	 * @param childA
+	 */
+	private void replaceXMLHooksInNT(FSTNonTerminal nonterminalComp, FSTNode childA) {
+		String beforeOrAfterId  = ((XMLNode) childA).getName().toString();
+		List<FSTNode> xmlChildren = ((FSTNonTerminal) childA).getChildren();
+		List<FSTNode> children = nonterminalComp.getChildren();
+		FSTNode beforeOrAfterNode = null;
+		for (FSTNode c : children) {
+			if (c.getName().equalsIgnoreCase(beforeOrAfterId)) {
+				beforeOrAfterNode = c;
+				break;
+			}
+		}
+		if (childA.getType().equalsIgnoreCase("before")) {
+			int beforeOrAfter = 0;
+			if (beforeOrAfterNode != null) {
+				int i = children.indexOf(beforeOrAfterNode);
+				for (FSTNode xmlChild : xmlChildren) {
+					if (xmlChild instanceof FSTNonTerminal) {
+						nonterminalComp.addChild(xmlChild.getDeepClone(), i + beforeOrAfter);
+						i++;
+					}
+				}
+			} else {
+				int i = 0;
+				for (FSTNode xmlChild : xmlChildren) {
+					if (xmlChild instanceof FSTNonTerminal) {
+						nonterminalComp.addChild(xmlChild.getDeepClone(), i);
+						i++;
+					}
+				}
+			}
+		} else if (childA.getType().equalsIgnoreCase("after")) {
+			int beforeOrAfter = 1;
+			if (beforeOrAfterNode != null) {
+				int i = children.indexOf(beforeOrAfterNode);
+				for (FSTNode xmlChild : xmlChildren) {
+					if (xmlChild instanceof FSTNonTerminal) {
+						nonterminalComp.addChild(xmlChild.getDeepClone(), i + beforeOrAfter);
+						i++;
+					}
+				}
+			} else {
+				for (FSTNode xmlChild : xmlChildren) {
+					if (xmlChild instanceof FSTNonTerminal) {
+						nonterminalComp.addChild(xmlChild.getDeepClone());
+					}
+				}
+			}
+		} else {
+			nonterminalComp.addChild(childA.getDeepClone());
+		}
 	}
 }
