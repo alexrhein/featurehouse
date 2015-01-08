@@ -177,6 +177,11 @@ public class CmdLineInterpreter {
 
 		if (errorOccured) {
 			printHelp(errorOccured);
+		} else {
+			if (exportFeatureMethodMapping && ! featureAnnotation) {
+				featureAnnotation = true;
+				FSTGenComposer.outStream.println("Option " + INPUT_OPTION_EXPORT_FEATURE_METHOD_MAPPING + " requires option " + INPUT_OPTION_ANNOTATION + ". We enabled " + INPUT_OPTION_ANNOTATION + ".");
+			}
 		}
 	}
 
