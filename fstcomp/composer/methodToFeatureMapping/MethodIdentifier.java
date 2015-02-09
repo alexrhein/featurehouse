@@ -190,7 +190,6 @@ public class MethodIdentifier {
 		if (functionCompilationUnit!=null && !functionCompilationUnit.equals(compilationUnit)) {
 			importedTypes.putAll(collectImportedTypes(functionCompilationUnit));
 		}
-		
 		// determine return Type and parameters; at this point imports must have been collected because they are used here (resolveImportedTypeName)
 		returnType = sig.returnType.
 				replaceAll("public","").replaceAll("private","").replaceAll("static","")
@@ -198,6 +197,7 @@ public class MethodIdentifier {
 				.replaceAll("native","").replaceAll("abstract","").replaceAll("transient","")
 				.replaceAll("strictfp","").trim();
 		returnType = resolveImportedTypeName(returnType, classPackage, importedTypes);
+		
 		String paramList = sig.paramlist.trim();
 		if (paramList.startsWith("(")) paramList=paramList.substring(1);
 		if (paramList.endsWith(")")) paramList=paramList.substring(0, paramList.length()-1);
@@ -386,7 +386,7 @@ public class MethodIdentifier {
 				parameters = parameters + ";" + s;
 		}
 		if (isConstructor)
-			return (classPackage.isEmpty()?"":classPackage+".") + className + "(" + parameters + ")" + "=" + originFeature;
+			return (classPackage.isEmpty()?"":classPackage+".") + className + "(" + parameters + ")" + "V=" + originFeature;
 		else
 			return (classPackage.isEmpty()?"":classPackage+".") + className + "." + methodName + "(" + parameters + ")" + returnType + "=" + originFeature;
 	}
